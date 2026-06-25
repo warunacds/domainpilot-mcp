@@ -9,10 +9,20 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "npx tsx src/index.ts"
+    "dev": "npx tsx src/index.ts",
+    "prepublishOnly": "npm run build"
   },
   "keywords": ["mcp", "domain", "dns", "uptime", "monitoring", "domainpilot"],
   "license": "MIT",
+  "author": "DomainPilot",
+  "homepage": "https://domainpilot.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/warunacds/domainpilot-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/warunacds/domainpilot-mcp/issues"
+  },
   "files": ["dist", "README.md"],
   "engines": { "node": ">=18.0.0" },
   "dependencies": {
