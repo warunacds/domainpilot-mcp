@@ -78,6 +78,8 @@ Use the same pattern -- point to `dist/index.js` and set the `DOMAINPILOT_API_TO
 | `get_dashboard_stats` | Get portfolio overview (total domains, online count, alerts) |
 | `toggle_monitoring` | Enable or disable uptime monitoring for a domain |
 
+> **Note:** DNS records can be added and updated, but **deletion is intentionally not exposed** through this server. Removing a record is the highest-risk DNS operation and the hardest to undo, so it is left out by design. Delete records via the Domain Pilot web UI instead.
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
