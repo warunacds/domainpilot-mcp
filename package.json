@@ -1,0 +1,27 @@
+{
+  "name": "domainpilot-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Domain Pilot — manage domains, DNS, uptime monitoring through AI assistants",
+  "main": "dist/index.js",
+  "bin": {
+    "domainpilot-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "npx tsx src/index.ts"
+  },
+  "keywords": ["mcp", "domain", "dns", "uptime", "monitoring", "domainpilot"],
+  "license": "MIT",
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=18.0.0" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0"
+  }
+}
