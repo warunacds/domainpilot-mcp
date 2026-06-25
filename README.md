@@ -12,27 +12,19 @@ Generate an MCP API token from your Domain Pilot settings page at [domainpilot.i
 
 ### 2. Configure your AI client
 
+#### Claude Code (recommended)
+
+One command -- no config file to edit:
+
+```bash
+claude mcp add domainpilot --env DOMAINPILOT_API_TOKEN=your-token-here -- npx -y domainpilot-mcp
+```
+
+The `--` separates Claude's flags from the command it runs; everything after it is the launch command. Pin a version with `domainpilot-mcp@1.0.2` if you prefer.
+
 #### Claude Desktop
 
 Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
-
-```json
-{
-  "mcpServers": {
-    "domainpilot": {
-      "command": "npx",
-      "args": ["-y", "domainpilot-mcp"],
-      "env": {
-        "DOMAINPILOT_API_TOKEN": "your-token-here"
-      }
-    }
-  }
-}
-```
-
-#### Claude Code
-
-Add to your Claude Code MCP settings (`.claude/settings.json`):
 
 ```json
 {
