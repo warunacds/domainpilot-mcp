@@ -4,19 +4,13 @@ A Model Context Protocol (MCP) server that connects AI assistants to your [Domai
 
 ## Quick Start
 
-### 1. Install dependencies and build
+The server is published on npm, so there's nothing to install or build -- `npx` fetches and runs it on demand.
 
-```bash
-cd domainpilot-mcp
-npm install
-npm run build
-```
-
-### 2. Get your API token
+### 1. Get your API token
 
 Generate an MCP API token from your Domain Pilot settings page at [domainpilot.io/settings/mcp](https://domainpilot.io/settings/mcp).
 
-### 3. Configure your AI client
+### 2. Configure your AI client
 
 #### Claude Desktop
 
@@ -26,8 +20,8 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 {
   "mcpServers": {
     "domainpilot": {
-      "command": "node",
-      "args": ["/absolute/path/to/domainpilot-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "domainpilot-mcp"],
       "env": {
         "DOMAINPILOT_API_TOKEN": "your-token-here"
       }
@@ -44,8 +38,8 @@ Add to your Claude Code MCP settings (`.claude/settings.json`):
 {
   "mcpServers": {
     "domainpilot": {
-      "command": "node",
-      "args": ["/absolute/path/to/domainpilot-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "domainpilot-mcp"],
       "env": {
         "DOMAINPILOT_API_TOKEN": "your-token-here"
       }
@@ -56,7 +50,20 @@ Add to your Claude Code MCP settings (`.claude/settings.json`):
 
 #### ChatGPT (or other MCP clients)
 
-Use the same pattern -- point to `dist/index.js` and set the `DOMAINPILOT_API_TOKEN` environment variable.
+Use the same pattern -- run `npx -y domainpilot-mcp` and set the `DOMAINPILOT_API_TOKEN` environment variable.
+
+### Running from source (development)
+
+To run a local checkout instead of the published package:
+
+```bash
+git clone https://github.com/warunacds/domainpilot-mcp.git
+cd domainpilot-mcp
+npm install
+npm run build
+```
+
+Then point your client's `command`/`args` at the built entry point -- `"command": "node", "args": ["/absolute/path/to/domainpilot-mcp/dist/index.js"]`.
 
 ## Available Tools
 
