@@ -57,6 +57,41 @@ npm run build
 
 Then point your client's `command`/`args` at the built entry point -- `"command": "node", "args": ["/absolute/path/to/domainpilot-mcp/dist/index.js"]`.
 
+### Remote HTTP development
+
+The remote entrypoint serves stateless Streamable HTTP at `/mcp`:
+
+```bash
+# Development
+npm run dev:http
+
+# Built server
+npm run build
+npm run start:http
+```
+
+List tools without authentication:
+
+```bash
+curl http://localhost:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+Tool calls require a bearer token on the request:
+
+```bash
+curl http://localhost:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Authorization: Bearer your-token-here' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_domains","arguments":{}}}'
+```
+
+The HTTP entrypoint never uses `DOMAINPILOT_API_TOKEN`; each tool call uses only
+the bearer token supplied with that request.
+
 ## Available Tools
 
 | Tool | Description |
@@ -83,8 +118,10 @@ Then point your client's `command`/`args` at the built entry point -- `"command"
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DOMAINPILOT_API_TOKEN` | Yes | -- | Your Domain Pilot MCP API token |
+| `DOMAINPILOT_API_TOKEN` | Stdio only | -- | Your Domain Pilot MCP API token |
 | `DOMAINPILOT_API_URL` | No | `https://api.domainpilot.io` | API base URL (override for development) |
+| `PORT` | HTTP only | `3000` | Port for the Streamable HTTP server |
+| `HOST` | HTTP only | `0.0.0.0` | Bind address for the Streamable HTTP server |
 
 ## Development
 
