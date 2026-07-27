@@ -1,19 +1,10 @@
-const DEFAULT_API_URL = 'https://api.domainpilot.io';
+export const DEFAULT_API_URL = 'https://api.domainpilot.io';
 
 export class DomainPilotClient {
-  private apiUrl: string;
-  private token: string;
-
-  constructor() {
-    this.token = process.env.DOMAINPILOT_API_TOKEN || '';
-    this.apiUrl = process.env.DOMAINPILOT_API_URL || DEFAULT_API_URL;
-
-    if (!this.token) {
-      throw new Error(
-        'DOMAINPILOT_API_TOKEN is required. Generate one at your Domain Pilot settings page.'
-      );
-    }
-  }
+  constructor(
+    private readonly token: string,
+    private readonly apiUrl: string
+  ) {}
 
   async get<T = unknown>(path: string): Promise<T> {
     return this.request<T>('GET', path);
@@ -32,6 +23,10 @@ export class DomainPilotClient {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    if (!this.token) {
+      throw new ApiError(401, this.formatError(401, {}));
+    }
+
     const url = `${this.apiUrl}${path}`;
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.token}`,

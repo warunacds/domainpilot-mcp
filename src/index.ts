@@ -1,35 +1,20 @@
 #!/usr/bin/env node
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { DomainPilotClient } from './client.js';
+import { DEFAULT_API_URL, DomainPilotClient } from './client.js';
+import { createDomainPilotServer } from './server.js';
 
-import { registerDomainTools } from './tools/domains.js';
-import { registerHealthTools } from './tools/health.js';
-import { registerAiAnalysisTools } from './tools/ai-analysis.js';
-import { registerUptimeTools } from './tools/uptime.js';
-import { registerDnsTools } from './tools/dns.js';
-import { registerSslTools } from './tools/ssl.js';
-import { registerIncidentTools } from './tools/incidents.js';
-import { registerDashboardTools } from './tools/dashboard.js';
-import { registerMonitoringTools } from './tools/monitoring.js';
+const token = process.env.DOMAINPILOT_API_TOKEN || '';
 
-const server = new McpServer({
-  name: 'domainpilot',
-  version: '1.0.0',
-});
+if (!token) {
+  throw new Error(
+    'DOMAINPILOT_API_TOKEN is required. Generate one at your Domain Pilot settings page.'
+  );
+}
 
-const client = new DomainPilotClient();
-
-registerDomainTools(server, client);
-registerHealthTools(server, client);
-registerAiAnalysisTools(server, client);
-registerUptimeTools(server, client);
-registerDnsTools(server, client);
-registerSslTools(server, client);
-registerIncidentTools(server, client);
-registerDashboardTools(server, client);
-registerMonitoringTools(server, client);
+const apiUrl = process.env.DOMAINPILOT_API_URL || DEFAULT_API_URL;
+const client = new DomainPilotClient(token, apiUrl);
+const server = createDomainPilotServer(client);
 
 async function main() {
   const transport = new StdioServerTransport();
