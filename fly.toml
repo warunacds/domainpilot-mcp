@@ -6,6 +6,8 @@ primary_region = 'ams'
 
 [env]
   PORT = '3000'
+  OAUTH_ISSUER = 'https://api.domainpilot.io'
+  MCP_RESOURCE_URL = 'https://mcp.domainpilot.io/mcp'
 
 [http_service]
   internal_port = 3000

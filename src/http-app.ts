@@ -1,18 +1,23 @@
+import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
+import { getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import express from 'express';
 import type { Request, Response } from 'express';
 import { DEFAULT_API_URL, DomainPilotClient } from './client.js';
 import { createDomainPilotServer } from './server.js';
+import { createTokenVerifier } from './token-verifier.js';
 
 interface JsonRpcRequest {
   id?: string | number | null;
-  method?: string;
 }
 
 export interface DomainPilotHttpAppOptions {
   apiUrl?: string;
   host?: string;
+  /** OAuth authorization server issuer (`OAUTH_ISSUER`), no trailing slash. */
+  oauthIssuer: string;
+  /** This server's canonical MCP endpoint (`MCP_RESOURCE_URL`). */
+  resourceUrl: string;
 }
 
 function jsonRpcRequests(body: unknown): JsonRpcRequest[] {
@@ -24,10 +29,6 @@ function jsonRpcRequests(body: unknown): JsonRpcRequest[] {
   );
 }
 
-function callsTool(body: unknown): boolean {
-  return jsonRpcRequests(body).some((message) => message.method === 'tools/call');
-}
-
 function requestId(body: unknown): string | number | null {
   if (Array.isArray(body)) {
     return null;
@@ -37,12 +38,6 @@ function requestId(body: unknown): string | number | null {
   return typeof message?.id === 'string' || typeof message?.id === 'number'
     ? message.id
     : null;
-}
-
-function bearerToken(request: Request): string | undefined {
-  const authorization = request.get('Authorization');
-  const match = authorization?.match(/^Bearer ([^\s]+)$/i);
-  return match?.[1];
 }
 
 function methodNotAllowed(_request: Request, response: Response): void {
@@ -59,43 +54,43 @@ function methodNotAllowed(_request: Request, response: Response): void {
     });
 }
 
-export function createDomainPilotHttpApp(
-  options: DomainPilotHttpAppOptions = {}
-) {
+export function createDomainPilotHttpApp(options: DomainPilotHttpAppOptions) {
   const apiUrl =
     options.apiUrl || process.env.DOMAINPILOT_API_URL || DEFAULT_API_URL;
   const app = createMcpExpressApp({ host: options.host });
+  const protectedResourceMetadata = {
+    resource: options.resourceUrl,
+    authorization_servers: [options.oauthIssuer],
+    scopes_supported: ['mcp'],
+    bearer_methods_supported: ['header'],
+    resource_name: 'Domain Pilot',
+  };
 
-  // Match the SDK's accepted JSON media types so every tools/call body is
-  // inspected by the bearer gate before transport handling.
-  app.use(
-    express.json({
-      type: (request) =>
-        request.headers['content-type']
-          ?.toLowerCase()
-          .includes('application/json') ?? false,
-    })
+  // RFC 9728 metadata. Browser-based clients (e.g. MCP Inspector) fetch it
+  // cross-origin during OAuth discovery.
+  app.get(
+    [
+      '/.well-known/oauth-protected-resource/mcp',
+      '/.well-known/oauth-protected-resource',
+    ],
+    (_request, response) => {
+      response
+        .set('Access-Control-Allow-Origin', '*')
+        .json(protectedResourceMetadata);
+    }
   );
 
-  app.post('/mcp', async (request, response) => {
-    const token = bearerToken(request);
+  const bearerAuth = requireBearerAuth({
+    verifier: createTokenVerifier(apiUrl),
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(
+      new URL(options.resourceUrl)
+    ),
+  });
 
-    if (callsTool(request.body) && !token) {
-      response
-        .set('WWW-Authenticate', 'Bearer')
-        .status(401)
-        .json({
-          jsonrpc: '2.0',
-          error: {
-            code: -32000,
-            message: 'Bearer token required for tools/call.',
-          },
-          id: requestId(request.body),
-        });
-      return;
-    }
-
-    const client = new DomainPilotClient(token || '', apiUrl);
+  app.post('/mcp', bearerAuth, async (request, response) => {
+    // requireBearerAuth only calls through with a verified token. The same
+    // bearer is forwarded to the REST API on tool calls.
+    const client = new DomainPilotClient(request.auth!.token, apiUrl);
     const server = createDomainPilotServer(client);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

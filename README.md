@@ -2,6 +2,32 @@
 
 A Model Context Protocol (MCP) server that connects AI assistants to your [Domain Pilot](https://domainpilot.io) account. Manage domains, DNS records, uptime monitoring, SSL status, and more through natural language in Claude Desktop, Claude Code, or any MCP-compatible client.
 
+## Connect remotely (sign in with Domain Pilot)
+
+The hosted server lives at `https://mcp.domainpilot.io/mcp`. Add that URL to your client and sign in with your Domain Pilot account when prompted -- there is no token to copy. You stay signed in as long as you keep using the client; after 30 days without use, it asks you to sign in again.
+
+### Claude (web and desktop)
+
+Settings -> Connectors -> **Add custom connector**, enter `https://mcp.domainpilot.io/mcp`, then connect and sign in.
+
+### ChatGPT (web and desktop)
+
+Turn on developer mode, then create a connector with the MCP server URL `https://mcp.domainpilot.io/mcp` and OAuth authentication, and sign in.
+
+### Claude Code
+
+```bash
+claude mcp add --transport http domainpilot https://mcp.domainpilot.io/mcp
+```
+
+Then run `/mcp` inside Claude Code and choose to authenticate; it opens your browser to sign in.
+
+### Other clients (Cursor, VS Code, Codex, ...)
+
+Any MCP client that supports remote servers with OAuth works with the same URL. Clients that can only send a fixed header can use a static MCP API token instead: `Authorization: Bearer your-token-here`.
+
+To revoke a client's access, disconnect it under **Connected apps** on your Domain Pilot MCP settings page.
+
 ## Quick Start
 
 The server is published on npm, so there's nothing to install or build -- `npx` fetches and runs it on demand.
@@ -59,38 +85,44 @@ Then point your client's `command`/`args` at the built entry point -- `"command"
 
 ### Remote HTTP development
 
-The remote entrypoint serves stateless Streamable HTTP at `/mcp`:
+The remote entrypoint serves stateless Streamable HTTP at `/mcp`. It needs `OAUTH_ISSUER` and `MCP_RESOURCE_URL` (see [Environment Variables](#environment-variables)) and refuses to start without them:
 
 ```bash
-# Development
-npm run dev:http
+# Development, against a local Domain Pilot API on :3000
+OAUTH_ISSUER=http://localhost:3000 \
+MCP_RESOURCE_URL=http://localhost:3100/mcp \
+DOMAINPILOT_API_URL=http://localhost:3000 \
+PORT=3100 npm run dev:http
 
-# Built server
+# Built server (same variables)
 npm run build
 npm run start:http
 ```
 
-List tools without authentication:
+Every request needs a bearer token -- an OAuth access token or a static MCP API token. The server validates it against the Domain Pilot API. Without a valid token it returns `401` with a `WWW-Authenticate` header whose `resource_metadata` points at `/.well-known/oauth-protected-resource/mcp`, which is how clients discover the sign-in flow:
 
 ```bash
-curl http://localhost:3000/mcp \
+curl http://localhost:3100/.well-known/oauth-protected-resource/mcp
+```
+
+```bash
+curl http://localhost:3100/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
+  -H 'Authorization: Bearer your-token-here' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
-Tool calls require a bearer token on the request:
-
 ```bash
-curl http://localhost:3000/mcp \
+curl http://localhost:3100/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H 'Authorization: Bearer your-token-here' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_domains","arguments":{}}}'
 ```
 
-The HTTP entrypoint never uses `DOMAINPILOT_API_TOKEN`; each tool call uses only
-the bearer token supplied with that request.
+The HTTP entrypoint never uses `DOMAINPILOT_API_TOKEN`; each request uses only
+the bearer token supplied with it, and tool calls forward that same token to the API.
 
 ## Available Tools
 
@@ -120,6 +152,8 @@ the bearer token supplied with that request.
 |----------|----------|---------|-------------|
 | `DOMAINPILOT_API_TOKEN` | Stdio only | -- | Your Domain Pilot MCP API token |
 | `DOMAINPILOT_API_URL` | No | `https://api.domainpilot.io` | API base URL (override for development) |
+| `OAUTH_ISSUER` | HTTP only | -- | OAuth authorization server advertised in the protected resource metadata (`https://api.domainpilot.io` in production). No trailing slash. |
+| `MCP_RESOURCE_URL` | HTTP only | -- | Public URL of this server's MCP endpoint (`https://mcp.domainpilot.io/mcp` in production) |
 | `PORT` | HTTP only | `3000` | Port for the Streamable HTTP server |
 | `HOST` | HTTP only | `0.0.0.0` | Bind address for the Streamable HTTP server |
 
