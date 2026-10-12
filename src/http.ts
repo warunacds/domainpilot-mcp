@@ -13,10 +13,24 @@ function configuredPort(): number {
   return port;
 }
 
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`${name} is required.`);
+  }
+
+  return value;
+}
+
 try {
   const host = process.env.HOST || '0.0.0.0';
   const port = configuredPort();
-  const app = createDomainPilotHttpApp({ host });
+  const app = createDomainPilotHttpApp({
+    host,
+    oauthIssuer: requiredEnv('OAUTH_ISSUER'),
+    resourceUrl: requiredEnv('MCP_RESOURCE_URL'),
+  });
   const httpServer = app.listen(port, host, () => {
     console.log(`DomainPilot MCP HTTP server listening on ${host}:${port}`);
   });

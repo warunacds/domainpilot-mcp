@@ -12,6 +12,11 @@ import request from 'supertest';
 import { createDomainPilotHttpApp } from '../src/http-app.js';
 
 const MCP_ACCEPT = 'application/json, text/event-stream';
+const OAUTH_ISSUER = 'http://localhost:3000';
+const MCP_RESOURCE_URL = 'http://localhost:3100/mcp';
+const RESOURCE_METADATA_URL =
+  'http://localhost:3100/.well-known/oauth-protected-resource/mcp';
+const TOKEN_INFO_PATH = '/api/v1/mcp/token_info';
 
 interface MockApi {
   close(): Promise<void>;
@@ -35,6 +40,21 @@ function domain(name: string) {
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'Content-Type': 'application/json' });
   response.end(JSON.stringify(body));
+}
+
+function sendTokenInfo(
+  response: ServerResponse,
+  expiresAt: string | null = null
+): void {
+  sendJson(response, 200, { user_id: 1, expires_at: expiresAt, scopes: ['mcp'] });
+}
+
+function createApp(apiUrl?: string) {
+  return createDomainPilotHttpApp({
+    apiUrl,
+    oauthIssuer: OAUTH_ISSUER,
+    resourceUrl: MCP_RESOURCE_URL,
+  });
 }
 
 async function startMockApi(
@@ -74,6 +94,56 @@ function postMcp(app: Express, body: unknown, token?: string) {
   return pendingRequest.send(body);
 }
 
+const initializeRequest = {
+  jsonrpc: '2.0',
+  id: 'initialize',
+  method: 'initialize',
+  params: {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: {
+      name: 'domainpilot-http-test',
+      version: '1.0.0',
+    },
+  },
+};
+
+const toolsListRequest = {
+  jsonrpc: '2.0',
+  id: 'tools',
+  method: 'tools/list',
+  params: {},
+};
+
+function assertInvalidTokenChallenge(response: request.Response): void {
+  assert.equal(response.status, 401);
+  assert.equal(response.body.error, 'invalid_token');
+  assert.match(
+    response.headers['www-authenticate'],
+    /^Bearer error="invalid_token"/
+  );
+  assert.ok(
+    response.headers['www-authenticate'].includes(
+      `resource_metadata="${RESOURCE_METADATA_URL}"`
+    )
+  );
+}
+
+function assertServerError(
+  response: request.Response,
+  errorLog: { mock: { calls: Array<{ arguments: unknown[] }> } },
+  token: string
+): void {
+  assert.equal(response.status, 500);
+  assert.equal(response.body.error, 'server_error');
+  assert.equal(response.headers['www-authenticate'], undefined);
+
+  const logged = errorLog.mock.calls.map(({ arguments: args }) => args.join(' '));
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /^Token verification failed: /);
+  assert.ok(!logged[0].includes(token));
+}
+
 function listDomainsCall(id: string | number) {
   return {
     jsonrpc: '2.0',
@@ -86,38 +156,29 @@ function listDomainsCall(id: string | number) {
   };
 }
 
-test('initialize and tools/list work without authentication', async () => {
-  const app = createDomainPilotHttpApp();
-  const initializeResponse = await postMcp(app, {
-    jsonrpc: '2.0',
-    id: 'initialize',
-    method: 'initialize',
-    params: {
-      protocolVersion: '2025-03-26',
-      capabilities: {},
-      clientInfo: {
-        name: 'domainpilot-http-test',
-        version: '1.0.0',
-      },
-    },
+for (const path of [
+  '/.well-known/oauth-protected-resource/mcp',
+  '/.well-known/oauth-protected-resource',
+]) {
+  test(`protected resource metadata is served at ${path}`, async () => {
+    const response = await request(createApp()).get(path);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers['access-control-allow-origin'], '*');
+    assert.deepEqual(response.body, {
+      resource: MCP_RESOURCE_URL,
+      authorization_servers: [OAUTH_ISSUER],
+      scopes_supported: ['mcp'],
+      bearer_methods_supported: ['header'],
+      resource_name: 'Domain Pilot',
+    });
   });
+}
 
-  assert.equal(initializeResponse.status, 200);
-  assert.equal(initializeResponse.body.result.serverInfo.name, 'domainpilot');
+test('initialize without a bearer returns 401 pointing at the resource metadata', async () => {
+  const response = await postMcp(createApp(), initializeRequest);
 
-  const toolsResponse = await postMcp(app, {
-    jsonrpc: '2.0',
-    id: 'tools',
-    method: 'tools/list',
-    params: {},
-  });
-
-  assert.equal(toolsResponse.status, 200);
-  assert.ok(
-    toolsResponse.body.result.tools.some(
-      (tool: { name: string }) => tool.name === 'list_domains'
-    )
-  );
+  assertInvalidTokenChallenge(response);
 });
 
 test('tools/call without a bearer returns 401 and never falls back to the environment', async () => {
@@ -130,13 +191,12 @@ test('tools/call without a bearer returns 401 and never falls back to the enviro
   process.env.DOMAINPILOT_API_TOKEN = 'server-environment-token';
 
   try {
-    const app = createDomainPilotHttpApp({ apiUrl: mockApi.url });
-    const response = await postMcp(app, listDomainsCall('unauthorized'));
+    const response = await postMcp(
+      createApp(mockApi.url),
+      listDomainsCall('unauthorized')
+    );
 
-    assert.equal(response.status, 401);
-    assert.equal(response.headers['www-authenticate'], 'Bearer');
-    assert.equal(response.body.id, 'unauthorized');
-    assert.match(response.body.error.message, /Bearer token required/);
+    assertInvalidTokenChallenge(response);
     assert.equal(apiRequests, 0);
   } finally {
     if (previousToken === undefined) {
@@ -148,34 +208,159 @@ test('tools/call without a bearer returns 401 and never falls back to the enviro
   }
 });
 
-test('tools/call cannot bypass the bearer gate with an SDK-accepted JSON media type', async () => {
-  const app = createDomainPilotHttpApp();
-  const response = await request(app)
+test('a token rejected by token_info returns 401 invalid_token', async () => {
+  const paths: Array<string | undefined> = [];
+  const mockApi = await startMockApi((apiRequest, response) => {
+    paths.push(apiRequest.url);
+    sendJson(response, 401, { error: 'Unauthorized' });
+  });
+
+  try {
+    const response = await postMcp(
+      createApp(mockApi.url),
+      toolsListRequest,
+      'revoked-token'
+    );
+
+    assertInvalidTokenChallenge(response);
+    assert.deepEqual(paths, [TOKEN_INFO_PATH]);
+  } finally {
+    await mockApi.close();
+  }
+});
+
+test('a token whose token_info expires_at has passed returns 401 invalid_token', async () => {
+  const mockApi = await startMockApi((_request, response) => {
+    sendTokenInfo(response, new Date(Date.now() - 60_000).toISOString());
+  });
+
+  try {
+    const response = await postMcp(
+      createApp(mockApi.url),
+      toolsListRequest,
+      'expired-oauth-token'
+    );
+
+    assertInvalidTokenChallenge(response);
+  } finally {
+    await mockApi.close();
+  }
+});
+
+test('unauthenticated text/plain and batch requests are rejected before transport handling', async () => {
+  const app = createApp();
+  const plainTextResponse = await request(app)
     .post('/mcp')
     .set('Accept', MCP_ACCEPT)
-    .set('Content-Type', 'application/json-seq')
-    .send(JSON.stringify(listDomainsCall('json-seq')));
-
-  assert.equal(response.status, 401);
-  assert.equal(response.headers['www-authenticate'], 'Bearer');
-  assert.equal(response.body.id, 'json-seq');
-});
-
-test('an unauthenticated batch containing tools/call is rejected before transport handling', async () => {
-  const app = createDomainPilotHttpApp();
-  const response = await postMcp(app, [
-    {
-      jsonrpc: '2.0',
-      id: 'list',
-      method: 'tools/list',
-      params: {},
-    },
-    listDomainsCall('call'),
+    .set('Content-Type', 'text/plain')
+    .send(JSON.stringify(listDomainsCall('plain-text')));
+  const batchResponse = await postMcp(app, [
+    toolsListRequest,
+    listDomainsCall('batch'),
   ]);
 
-  assert.equal(response.status, 401);
-  assert.equal(response.body.id, null);
+  assertInvalidTokenChallenge(plainTextResponse);
+  assertInvalidTokenChallenge(batchResponse);
 });
+
+test('a token_info server error returns 500 rather than asking the client to re-authenticate', async (t) => {
+  const errorLog = t.mock.method(console, 'error', () => {});
+  const mockApi = await startMockApi((_request, response) => {
+    sendJson(response, 503, { error: 'Service Unavailable' });
+  });
+
+  try {
+    const response = await postMcp(
+      createApp(mockApi.url),
+      toolsListRequest,
+      'valid-token'
+    );
+
+    assertServerError(response, errorLog, 'valid-token');
+    assert.match(errorLog.mock.calls[0].arguments[0] as string, /HTTP 503/);
+  } finally {
+    await mockApi.close();
+  }
+});
+
+test('an unreachable token_info endpoint returns 500, not invalid_token', async (t) => {
+  const errorLog = t.mock.method(console, 'error', () => {});
+  const mockApi = await startMockApi((_request, response) => {
+    sendJson(response, 200, {});
+  });
+  await mockApi.close();
+
+  const response = await postMcp(
+    createApp(mockApi.url),
+    toolsListRequest,
+    'valid-token'
+  );
+
+  assertServerError(response, errorLog, 'valid-token');
+});
+
+test('an unparseable token_info expires_at returns 500, not invalid_token', async (t) => {
+  const errorLog = t.mock.method(console, 'error', () => {});
+  const mockApi = await startMockApi((_request, response) => {
+    sendTokenInfo(response, 'not-a-date');
+  });
+
+  try {
+    const response = await postMcp(
+      createApp(mockApi.url),
+      toolsListRequest,
+      'valid-token'
+    );
+
+    assertServerError(response, errorLog, 'valid-token');
+    assert.match(
+      errorLog.mock.calls[0].arguments[0] as string,
+      /unparseable expires_at/
+    );
+  } finally {
+    await mockApi.close();
+  }
+});
+
+for (const { kind, token, expiresAt } of [
+  {
+    kind: 'an OAuth access token',
+    token: 'dp_mcp_oauth-access-token',
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  },
+  { kind: 'a static MCP token', token: 'dp_mcp_static-token', expiresAt: null },
+]) {
+  test(`${kind} can initialize and list tools`, async () => {
+    const authorizations: Array<string | undefined> = [];
+    const paths: Array<string | undefined> = [];
+    const mockApi = await startMockApi((apiRequest, response) => {
+      authorizations.push(apiRequest.headers.authorization);
+      paths.push(apiRequest.url);
+      sendTokenInfo(response, expiresAt);
+    });
+
+    try {
+      const app = createApp(mockApi.url);
+      const initializeResponse = await postMcp(app, initializeRequest, token);
+
+      assert.equal(initializeResponse.status, 200);
+      assert.equal(initializeResponse.body.result.serverInfo.name, 'domainpilot');
+
+      const toolsResponse = await postMcp(app, toolsListRequest, token);
+
+      assert.equal(toolsResponse.status, 200);
+      assert.ok(
+        toolsResponse.body.result.tools.some(
+          (tool: { name: string }) => tool.name === 'list_domains'
+        )
+      );
+      assert.deepEqual(authorizations, [`Bearer ${token}`, `Bearer ${token}`]);
+      assert.deepEqual(paths, [TOKEN_INFO_PATH, TOKEN_INFO_PATH]);
+    } finally {
+      await mockApi.close();
+    }
+  });
+}
 
 test('tools/call forwards the exact request bearer to the REST API', async () => {
   const authorizations: Array<string | undefined> = [];
@@ -183,20 +368,27 @@ test('tools/call forwards the exact request bearer to the REST API', async () =>
   const mockApi = await startMockApi((apiRequest, response) => {
     authorizations.push(apiRequest.headers.authorization);
     paths.push(apiRequest.url);
-    sendJson(response, 200, [domain('exact-token.example')]);
+
+    if (apiRequest.url === TOKEN_INFO_PATH) {
+      sendTokenInfo(response);
+    } else {
+      sendJson(response, 200, [domain('exact-token.example')]);
+    }
   });
 
   try {
-    const app = createDomainPilotHttpApp({ apiUrl: mockApi.url });
     const response = await postMcp(
-      app,
+      createApp(mockApi.url),
       listDomainsCall('authorized'),
       'request-specific-token'
     );
 
     assert.equal(response.status, 200);
-    assert.deepEqual(authorizations, ['Bearer request-specific-token']);
-    assert.deepEqual(paths, ['/api/domains']);
+    assert.deepEqual(authorizations, [
+      'Bearer request-specific-token',
+      'Bearer request-specific-token',
+    ]);
+    assert.deepEqual(paths, [TOKEN_INFO_PATH, '/api/domains']);
     assert.match(response.body.result.content[0].text, /exact-token\.example/);
   } finally {
     await mockApi.close();
@@ -204,14 +396,17 @@ test('tools/call forwards the exact request bearer to the REST API', async () =>
 });
 
 test('a REST API 401 becomes the existing friendly MCP tool error', async () => {
-  const mockApi = await startMockApi((_request, response) => {
-    sendJson(response, 401, { error: 'Unauthorized' });
+  const mockApi = await startMockApi((apiRequest, response) => {
+    if (apiRequest.url === TOKEN_INFO_PATH) {
+      sendTokenInfo(response);
+    } else {
+      sendJson(response, 401, { error: 'Unauthorized' });
+    }
   });
 
   try {
-    const app = createDomainPilotHttpApp({ apiUrl: mockApi.url });
     const response = await postMcp(
-      app,
+      createApp(mockApi.url),
       listDomainsCall('expired'),
       'expired-token'
     );
@@ -247,6 +442,11 @@ test(
     };
 
     const mockApi = await startMockApi((apiRequest, response) => {
+      if (apiRequest.url === TOKEN_INFO_PATH) {
+        sendTokenInfo(response);
+        return;
+      }
+
       const authorization = apiRequest.headers.authorization || '';
       activeRequests += 1;
       maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
@@ -259,7 +459,7 @@ test(
     });
 
     try {
-      const app = createDomainPilotHttpApp({ apiUrl: mockApi.url });
+      const app = createApp(mockApi.url);
       const [firstResponse, secondResponse] = await Promise.all([
         postMcp(app, listDomainsCall('first'), 'token-a'),
         postMcp(app, listDomainsCall('second'), 'token-b'),
