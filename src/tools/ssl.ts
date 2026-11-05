@@ -19,7 +19,7 @@ export function registerSslTools(server: McpServer, client: DomainPilotClient) {
             content: [
               {
                 type: 'text' as const,
-                text: `No SSL checks recorded yet for ${domain_name}. SSL monitoring runs on paid tiers; check the domain's SSL tab in Domain Pilot.`,
+                text: `No SSL checks recorded yet for ${domain_name}. See the domain's SSL tab in Domain Pilot.`,
               },
             ],
           };

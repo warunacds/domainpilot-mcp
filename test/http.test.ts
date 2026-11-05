@@ -556,6 +556,6 @@ test('get_ssl_status explains when no SSL checks have been recorded', async () =
   assert.ok(!response.body.result.isError);
   assert.equal(
     response.body.result.content[0].text,
-    "No SSL checks recorded yet for ssl.example. SSL monitoring runs on paid tiers; check the domain's SSL tab in Domain Pilot."
+    "No SSL checks recorded yet for ssl.example. See the domain's SSL tab in Domain Pilot."
   );
 });
