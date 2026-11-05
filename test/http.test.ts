@@ -485,3 +485,77 @@ test(
     }
   }
 );
+
+function sslStatusCall(domainName: string) {
+  return {
+    jsonrpc: '2.0',
+    id: 'ssl',
+    method: 'tools/call',
+    params: {
+      name: 'get_ssl_status',
+      arguments: { domain_name: domainName },
+    },
+  };
+}
+
+function sslCheck(id: number, checkedAt: string) {
+  return {
+    id,
+    status: 'valid',
+    expires_at: '2027-01-01T00:00:00Z',
+    days_until_expiry: 57,
+    issuer: "Let's Encrypt",
+    checked_at: checkedAt,
+  };
+}
+
+async function callSslStatus(checks: unknown[]) {
+  const paths: Array<string | undefined> = [];
+  const mockApi = await startMockApi((apiRequest, response) => {
+    paths.push(apiRequest.url);
+
+    if (apiRequest.url === TOKEN_INFO_PATH) {
+      sendTokenInfo(response);
+    } else {
+      sendJson(response, 200, checks);
+    }
+  });
+
+  try {
+    const response = await postMcp(
+      createApp(mockApi.url),
+      sslStatusCall('ssl.example'),
+      'ssl-token'
+    );
+    return { paths, response };
+  } finally {
+    await mockApi.close();
+  }
+}
+
+test('get_ssl_status requests only the latest check and returns that single object', async () => {
+  const latest = sslCheck(2, '2026-11-05T10:00:00Z');
+  const { paths, response } = await callSslStatus([
+    latest,
+    sslCheck(1, '2026-11-04T10:00:00Z'),
+  ]);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(paths, [
+    TOKEN_INFO_PATH,
+    '/api/domains/ssl.example/ssl_checks?limit=1',
+  ]);
+  assert.ok(!response.body.result.isError);
+  assert.deepEqual(JSON.parse(response.body.result.content[0].text), latest);
+});
+
+test('get_ssl_status explains when no SSL checks have been recorded', async () => {
+  const { response } = await callSslStatus([]);
+
+  assert.equal(response.status, 200);
+  assert.ok(!response.body.result.isError);
+  assert.equal(
+    response.body.result.content[0].text,
+    "No SSL checks recorded yet for ssl.example. SSL monitoring runs on paid tiers; check the domain's SSL tab in Domain Pilot."
+  );
+});

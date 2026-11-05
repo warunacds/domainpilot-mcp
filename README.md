@@ -139,7 +139,7 @@ the bearer token supplied with it, and tool calls forward that same token to the
 | `add_dns_record` | Add a DNS record (A, AAAA, CNAME, MX, TXT, NS) |
 | `update_dns_record` | Update an existing DNS record |
 | `acknowledge_dns_changes` | Acknowledge detected DNS changes for a domain |
-| `get_ssl_status` | Get SSL certificate status and details |
+| `get_ssl_status` | Get the latest SSL certificate check (status, expiry, days until expiry, issuer) |
 | `get_incidents` | List downtime incidents for a domain |
 | `get_dashboard_stats` | Get portfolio overview (total domains, online count, alerts) |
 | `toggle_monitoring` | Enable or disable uptime monitoring for a domain |
