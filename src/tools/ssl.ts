@@ -5,17 +5,27 @@ import { DomainPilotClient } from '../client.js';
 export function registerSslTools(server: McpServer, client: DomainPilotClient) {
   server.tool(
     'get_ssl_status',
-    'Get SSL certificate status and details for a domain',
+    'Get the latest SSL certificate check for a domain (status, expiry date, days until expiry, issuer)',
     {
       domain_name: z.string().describe('The domain name (e.g., "example.com")'),
     },
     async ({ domain_name }) => {
       try {
-        const data = await client.get(
-          `/api/domains/${encodeURIComponent(domain_name)}/ssl_checks`
+        const data = await client.get<unknown[]>(
+          `/api/domains/${encodeURIComponent(domain_name)}/ssl_checks?limit=1`
         );
+        if (data.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `No SSL checks recorded yet for ${domain_name}. See the domain's SSL tab in Domain Pilot.`,
+              },
+            ],
+          };
+        }
         return {
-          content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+          content: [{ type: 'text' as const, text: JSON.stringify(data[0], null, 2) }],
         };
       } catch (error) {
         return {
