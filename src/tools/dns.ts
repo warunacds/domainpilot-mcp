@@ -5,7 +5,7 @@ import { DomainPilotClient } from '../client.js';
 export function registerDnsTools(server: McpServer, client: DomainPilotClient) {
   server.tool(
     'get_dns_records',
-    'List all DNS records for a domain',
+    'List all DNS records for a domain. For Cloudflare-managed domains each record includes its note in the "comment" field.',
     {
       domain_name: z.string().describe('The domain name (e.g., "example.com")'),
     },
@@ -44,8 +44,15 @@ export function registerDnsTools(server: McpServer, client: DomainPilotClient) {
         .number()
         .optional()
         .describe('Priority for MX records (optional)'),
+      note: z
+        .string()
+        .max(500)
+        .optional()
+        .describe(
+          'A note about what the record is for (optional). Only available for domains whose DNS is managed at Cloudflare, where it is saved as the record comment (100 characters on Cloudflare Free plans, 500 on paid plans). Passing a note for any other provider returns an error.'
+        ),
     },
-    async ({ domain_name, record_type, name, value, ttl, priority }) => {
+    async ({ domain_name, record_type, name, value, ttl, priority, note }) => {
       try {
         const dnsRecord: Record<string, unknown> = {
           record_type,
@@ -58,6 +65,9 @@ export function registerDnsTools(server: McpServer, client: DomainPilotClient) {
         }
         if (priority !== undefined) {
           dnsRecord.priority = priority;
+        }
+        if (note !== undefined) {
+          dnsRecord.comment = note;
         }
 
         const data = await client.post(
@@ -88,8 +98,15 @@ export function registerDnsTools(server: McpServer, client: DomainPilotClient) {
       value: z.string().optional().describe('The new record value (optional)'),
       ttl: z.number().optional().describe('The new TTL in seconds (optional)'),
       priority: z.number().optional().describe('The new priority for MX records (optional)'),
+      note: z
+        .string()
+        .max(500)
+        .optional()
+        .describe(
+          'The new note for the record (optional). Pass an empty string to remove the note; omit it to leave the note unchanged. Only available for domains whose DNS is managed at Cloudflare; a non-empty note for any other provider returns an error.'
+        ),
     },
-    async ({ domain_name, record_id, value, ttl, priority }) => {
+    async ({ domain_name, record_id, value, ttl, priority, note }) => {
       try {
         const dnsRecord: Record<string, unknown> = {};
 
@@ -101,6 +118,9 @@ export function registerDnsTools(server: McpServer, client: DomainPilotClient) {
         }
         if (priority !== undefined) {
           dnsRecord.priority = priority;
+        }
+        if (note !== undefined) {
+          dnsRecord.comment = note;
         }
 
         const data = await client.patch(
