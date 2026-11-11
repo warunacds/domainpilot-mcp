@@ -559,3 +559,70 @@ test('get_ssl_status explains when no SSL checks have been recorded', async () =
     "No SSL checks recorded yet for ssl.example. See the domain's SSL tab in Domain Pilot."
   );
 });
+
+// Calls a DNS write tool and returns the JSON body it sent to the REST API.
+async function callDnsWrite(name: string, args: Record<string, unknown>) {
+  let sent: { method?: string; url?: string; body?: any } = {};
+  const mockApi = await startMockApi((apiRequest, response) => {
+    if (apiRequest.url === TOKEN_INFO_PATH) {
+      sendTokenInfo(response);
+      return;
+    }
+
+    let raw = '';
+    apiRequest.on('data', (chunk) => (raw += chunk));
+    apiRequest.on('end', () => {
+      sent = { method: apiRequest.method, url: apiRequest.url, body: JSON.parse(raw) };
+      sendJson(response, 200, { id: 5, ...sent.body.dns_record });
+    });
+  });
+
+  try {
+    const response = await postMcp(
+      createApp(mockApi.url),
+      { jsonrpc: '2.0', id: 'dns', method: 'tools/call', params: { name, arguments: args } },
+      'dns-token'
+    );
+    return { sent, response };
+  } finally {
+    await mockApi.close();
+  }
+}
+
+test('add_dns_record sends a note as the record comment', async () => {
+  const { sent, response } = await callDnsWrite('add_dns_record', {
+    domain_name: 'dns.example',
+    record_type: 'A',
+    name: 'www',
+    value: '192.0.2.1',
+    note: 'Marketing site',
+  });
+
+  assert.ok(!response.body.result.isError);
+  assert.equal(sent.method, 'POST');
+  assert.equal(sent.url, '/api/domains/dns.example/dns_records');
+  assert.equal(sent.body.dns_record.comment, 'Marketing site');
+});
+
+test('update_dns_record sends an empty note to clear it', async () => {
+  const { sent } = await callDnsWrite('update_dns_record', {
+    domain_name: 'dns.example',
+    record_id: '5',
+    note: '',
+  });
+
+  assert.equal(sent.method, 'PATCH');
+  assert.deepEqual(sent.body.dns_record, { comment: '' });
+});
+
+// The API keeps the record's note when the field is absent, so an update that
+// does not mention the note must not send one.
+test('update_dns_record leaves the note out when none is given', async () => {
+  const { sent } = await callDnsWrite('update_dns_record', {
+    domain_name: 'dns.example',
+    record_id: '5',
+    ttl: 600,
+  });
+
+  assert.deepEqual(sent.body.dns_record, { ttl: 600 });
+});

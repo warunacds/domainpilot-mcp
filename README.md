@@ -136,8 +136,8 @@ the bearer token supplied with it, and tool calls forward that same token to the
 | `get_ai_analysis` | Get AI-powered analysis with findings and recommendations |
 | `get_uptime` | Get uptime statistics for a domain (24h, 7d, or 30d) |
 | `get_dns_records` | List all DNS records for a domain |
-| `add_dns_record` | Add a DNS record (A, AAAA, CNAME, MX, TXT, NS) |
-| `update_dns_record` | Update an existing DNS record |
+| `add_dns_record` | Add a DNS record (A, AAAA, CNAME, MX, TXT, NS), with an optional note on Cloudflare-managed domains |
+| `update_dns_record` | Update an existing DNS record, including its note on Cloudflare-managed domains |
 | `acknowledge_dns_changes` | Acknowledge detected DNS changes for a domain |
 | `get_ssl_status` | Get the latest SSL certificate check (status, expiry, days until expiry, issuer) |
 | `get_incidents` | List downtime incidents for a domain |
